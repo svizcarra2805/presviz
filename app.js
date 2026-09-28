@@ -107,24 +107,43 @@
   const view = $('#view');
   function render() {
     applyTheme();
+    const listo = phase === 'in' && P();
+    document.body.classList.toggle('locked', !listo);
     document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
-    if (!P()) { $('#monthNav').style.visibility = 'hidden'; view.innerHTML = onboarding(); bindOnboarding(); return; }
+    if (!listo) { $('#monthNav').style.visibility = 'hidden'; view.innerHTML = phase === 'in' ? planView() : authView(); return; }
     $('#monthNav').style.visibility = tab === 'metas' ? 'hidden' : 'visible';
     $('#monthLabel').textContent = monthName(P().months[mi]);
     $('#prevMonth').disabled = mi === 0; $('#nextMonth').disabled = mi === P().months.length - 1;
     view.innerHTML = ({ inicio, pagos, bolsas, metas, presupuesto, tarjeta })[tab]();
   }
 
-  function onboarding() {
-    return `<div class="card empty">
-      <img src="icons/icon-192.png" width="72" height="72" alt="" style="border-radius:18px">
-      <h1>Hola 👋</h1>
-      <p class="muted">Para abrir su plan, ingresa la <b>clave</b> que te pasó Sofía.</p>
-      <p class="small muted">El plan viene cifrado. Lo que anoten se guarda solo en este celular.</p>
-      <div class="btns" style="justify-content:center;margin-top:14px"><button class="btn primary" data-act="unlock">Ingresar clave</button><button class="btn" data-act="import">Cargar archivo</button></div>
-    </div>`;
+  const ALLOWED = ['sp.vizcarrah@gmail.com', 'renanescar@gmail.com'];
+  let phase = 'boot', authMsg = '', needKey = false;
+  const logo = '<img src="icons/icon-192.png" width="64" height="64" alt="" style="border-radius:16px">';
+  function authView() {
+    if (phase === 'boot') return `<div class="card empty">${logo}<p class="muted">Cargando…</p></div>`;
+    if (phase === 'offline') return `<div class="card empty">${logo}<h1>Sin conexión</h1><p class="muted">Necesitas internet la primera vez para iniciar sesión.</p><button class="btn primary" data-act="retry">Reintentar</button></div>`;
+    if (phase === 'verify') return `<div class="card empty">${logo}<h1>Verifica tu correo</h1><p class="muted">Te enviamos un enlace a <b>${esc(fb.user.email)}</b>. Ábrelo y luego toca “Ya verifiqué”.</p>
+      <div class="btns" style="justify-content:center"><button class="btn primary" data-act="verified">Ya verifiqué</button><button class="btn" data-act="resend">Reenviar correo</button><button class="btn" data-act="logout">Salir</button></div></div>`;
+    return `<div class="card" style="max-width:420px;margin:24px auto">
+      <div style="text-align:center">${logo}<h1 style="font-size:22px;margin:10px 0 4px">Presviz</h1><p class="muted small" style="margin:0 0 8px">Solo para Sofía y Renán</p></div>
+      ${authMsg ? `<p class="pill ${phase === 'denied' ? 'danger' : 'warn'}" style="display:block;text-align:center;white-space:normal;padding:8px">${esc(authMsg)}</p>` : ''}
+      <form id="loginForm" autocomplete="on">
+        <label class="small muted" for="lgEmail">Correo</label>
+        <input class="field" id="lgEmail" type="email" autocomplete="username" required>
+        <label class="small muted" for="lgPass">Contraseña</label>
+        <input class="field" id="lgPass" type="password" autocomplete="current-password" minlength="6" required>
+        <div class="btns" style="margin-top:14px"><button class="btn primary" type="submit" style="flex:1">Entrar</button></div>
+        <div class="btns" style="justify-content:space-between;margin-top:8px"><button class="btn link" type="button" data-act="signup">Crear mi cuenta</button><button class="btn link" type="button" data-act="reset">Olvidé mi contraseña</button></div>
+      </form></div>`;
   }
-  function bindOnboarding() { /* acciones por delegación */ }
+  function planView() {
+    if (!needKey) return `<div class="card empty">${logo}<p class="muted">Abriendo su plan…</p></div>`;
+    return `<div class="card" style="max-width:420px;margin:24px auto"><h3 style="margin-top:0">Abrir el plan (solo la primera vez)</h3>
+      <p class="small muted">Ingresa la clave del plan. Queda guardada de forma protegida y el otro celular la tomará solo.</p>
+      <form id="keyForm"><input class="field" id="planKey" type="password" autocomplete="off" required>
+      <div class="btns" style="margin-top:12px"><button class="btn primary" type="submit">Abrir</button><button class="btn" type="button" data-act="logout">Salir</button></div></form></div>`;
+  }
 
   function inicio() {
     const c = monthCalc(mi), k = P().months[mi];
@@ -362,13 +381,13 @@
       <label for="sTheme">Tema</label>
       <select id="sTheme"><option value="auto" ${st.theme === 'auto' ? 'selected' : ''}>Automático</option><option value="light" ${st.theme === 'light' ? 'selected' : ''}>Claro</option><option value="dark" ${st.theme === 'dark' ? 'selected' : ''}>Oscuro</option></select>
       <label for="sFx">Tipo de cambio US$</label><input id="sFx" type="number" step="0.001" inputmode="decimal" value="${fx() || ''}">
-      <label>Sincronización en línea</label>
+      <label>Cuenta</label>
       <div id="cloudBox" class="small">${cloudBoxHtml()}</div>
       <label>Respaldo manual</label>
       <p class="small muted" style="margin:0 0 8px">Por si acaso: guarda una copia de tus datos en un archivo, o importa uno.</p>
       <div class="btns" style="justify-content:flex-start"><button type="button" class="btn primary" data-act="export">Exportar respaldo</button><button type="button" class="btn" data-act="import">Importar archivo</button></div>
       <label>Zona de peligro</label>
-      <div class="btns" style="justify-content:flex-start"><button type="button" class="btn" data-act="wipe" style="color:var(--danger)">Borrar datos de este celular</button></div>
+      <div class="btns" style="justify-content:flex-start"><button type="button" class="btn" data-act="wipe" style="color:var(--danger)">Cerrar sesión y borrar este celular</button></div>
       <div class="btns"><button class="btn primary" value="ok">Listo</button></div>`;
     dlg.onclose = () => {
       if (dlg.returnValue === 'ok') {
@@ -421,12 +440,13 @@
     const act = a.dataset.act;
     if (act === 'import') { if (dlg.open) dlg.close(); $('#fileIn').click(); return; }
     if (act === 'export') { exportData(); return; }
-    if (act === 'unlock') { syncPlan(true); return; }
-    if (act === 'login') { if (dlg.open) dlg.close(); cloudLogin(); return; }
-    if (act === 'logout') { if (fb) { await fb.signOut(); toast('Sesión cerrada'); } if (dlg.open) dlg.close(); return; }
+    if (act === 'signup') { doAuth('signup'); return; }
+    if (act === 'reset') { doAuth('reset'); return; }
+    if (act === 'retry') { location.reload(); return; }
+    if (act === 'logout') { if (fb) await wipeAndSignOut('out'); return; }
     if (act === 'verified') { if (fb && fb.user) { await fb.user.reload(); await fb.user.getIdToken(true); onUser(fb.auth.currentUser); } if (dlg.open) dlg.close(); return; }
     if (act === 'resend') { if (fb && fb.user) { await fb.fn.sendEmailVerification(fb.user); toast('Correo de verificación enviado'); } return; }
-    if (act === 'wipe') { if (confirm('¿Borrar todos los datos de este celular? Exporta un respaldo antes.')) { st = blank(); save(); dlg.close(); render(); } return; }
+    if (act === 'wipe') { if (confirm('¿Cerrar sesión y borrar los datos de este celular? Lo sincronizado sigue en la nube.')) await wipeAndSignOut('out'); return; }
     if (act === 'paid' || act === 'wish') return; // lo maneja 'change'
     if (act === 'clas') { setK('clasif', a.dataset.id, a.dataset.v || null); render(); return; }
     if (act === 'amt') { const r = await ask({ title: 'Monto del pago', text: 'Ej.: el total del estado de cuenta.', fields: [{ label: 'Monto (S/)', value: getV('amt', a.dataset.key) ?? '' }] }); if (r && num(r[0]) !== null) { setK('amt', a.dataset.key, num(r[0])); render(); } return; }
@@ -436,6 +456,10 @@
     if (act === 'cap') { const r = await ask({ title: 'Capital pendiente', text: 'Cópialo de la app BBVA (Préstamo → Capital pendiente).', fields: [{ label: 'Capital (S/)', value: st.cap ? st.cap.v : P().hip.capital }] }); if (r && num(r[0])) { st.cap = stamp(num(r[0])); save(); cloudPushTop('cap', st.cap); render(); } return; }
     if (act === 'prepago') { const r = await ask({ title: 'Simular prepago anual', text: 'Monto que prepagan cada setiembre. El plan es S/ 8,500 (termina ene-2040).', fields: [{ label: 'Prepago anual (S/)', value: st.prepago ?? P().hip.prepagoAnual }] }); if (r && num(r[0]) !== null) { st.prepago = num(r[0]); save(); render(); } return; }
   });
+  document.addEventListener('submit', (e) => {
+    if (e.target.id === 'loginForm') { e.preventDefault(); doAuth('login'); }
+    if (e.target.id === 'keyForm') { e.preventDefault(); submitKey($('#planKey').value.trim()); }
+  });
   document.addEventListener('change', (e) => {
     const a = e.target.closest('[data-act]'); if (!a) return;
     if (a.dataset.act === 'paid') { setK('paid', a.dataset.key, a.checked); render(); }
@@ -443,7 +467,7 @@
   });
   $('#prevMonth').onclick = () => { if (mi > 0) { mi--; render(); } };
   $('#nextMonth').onclick = () => { if (P() && mi < P().months.length - 1) { mi++; render(); } };
-  $('#openSettings').onclick = settings;
+  $('#openSettings').onclick = () => { if (phase === 'in') settings(); };
 
   function applyTheme() { const r = document.documentElement; if (st.theme === 'auto') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', st.theme); }
   let tt; function toast(msg) { const el = $('#toast'); el.textContent = msg; el.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => el.classList.remove('show'), 2600); }
@@ -457,30 +481,29 @@
     return JSON.parse(new TextDecoder().decode(pt));
   }
   let syncing = false;
-  async function syncPlan(manual) {
-    if (syncing || !(window.crypto && crypto.subtle)) return;
+  async function fetchEnc() {
+    try { const r = await fetch('plan.enc.json?t=' + Date.now(), { cache: 'no-store' }); if (r.ok) { const e = await r.json(); if (e.kind === 'plan-cifrado') return e; } } catch (e) { /* sin conexión */ }
+    return null;
+  }
+  async function syncPlan() {
+    if (syncing || phase !== 'in' || !(window.crypto && crypto.subtle)) return;
     syncing = true;
     try {
-      let enc = null;
-      try { const r = await fetch('plan.enc.json', { cache: 'no-store' }); if (r.ok) enc = await r.json(); } catch (e) { /* sin conexión */ }
-      if (!enc || enc.kind !== 'plan-cifrado') { if (manual) toast('No se encontró el plan en la app'); return; }
-      if (st.plan && (st.plan.version || '') >= enc.version) { if (manual) toast('Ya tienes la última versión del plan'); return; }
-      let pw = st.pw;
-      for (let n = 0; n < 3; n++) {
-        if (!pw) {
-          const r = await ask({ title: st.plan ? 'Hay una versión nueva del plan' : 'Abrir nuestro plan', text: 'Ingresa la clave que te pasó Sofía.', fields: [{ label: 'Clave', type: 'password' }], ok: 'Abrir' });
-          if (!r) return;
-          pw = r[0].trim();
-        }
-        try {
-          const plan = await decryptPlan(enc, pw);
-          const nuevo = !!st.plan;
-          st.plan = plan; st.pw = pw; save(); initMonth(); render(); cloudSavePw();
-          toast(nuevo ? 'Plan actualizado ✓' : 'Plan cargado ✓');
-          return;
-        } catch (e) { pw = ''; st.pw = ''; toast('Clave incorrecta'); }
-      }
+      const enc = await fetchEnc();
+      if (!enc) { if (!P()) { needKey = false; render(); } return; }
+      if (P() && (P().version || '') >= enc.version) return;
+      if (!st.pw) { needKey = true; render(); return; }
+      try {
+        const nuevo = !!P();
+        st.plan = await decryptPlan(enc, st.pw); save(); initMonth(); needKey = false; render();
+        if (nuevo) toast('Plan actualizado ✓');
+      } catch (e) { st.pw = ''; save(); needKey = true; render(); }
     } finally { syncing = false; }
+  }
+  async function submitKey(pw) {
+    const enc = await fetchEnc(); if (!enc) { toast('Sin conexión'); return; }
+    try { st.plan = await decryptPlan(enc, pw); st.pw = pw; save(); initMonth(); needKey = false; cloudSavePw(); render(); toast('Plan abierto ✓'); }
+    catch (e) { toast('Clave incorrecta'); }
   }
 
   // ---------- nube (Firebase) ----------
@@ -492,7 +515,7 @@
     if (c === 'loading') return '<span class="muted">Conectando…</span>';
     if (c === 'out') return '<p class="muted" style="margin:0 0 8px">Inicia sesión para que los dos vean lo mismo al instante.</p><button type="button" class="btn primary" data-act="login">Iniciar sesión</button>';
     if (c === 'verify') return `<p class="muted" style="margin:0 0 8px">Te enviamos un correo a <b>${esc(fb.user.email)}</b>. Abre el enlace y luego toca “Ya verifiqué”.</p><div class="btns" style="justify-content:flex-start"><button type="button" class="btn primary" data-act="verified">Ya verifiqué</button><button type="button" class="btn" data-act="resend">Reenviar</button><button type="button" class="btn" data-act="logout">Salir</button></div>`;
-    return `<p style="margin:0 0 8px">✅ Conectado como <b>${esc(fb.user.email)}</b>${c === 'sync' ? ' <span class="muted">(sin conexión: se sube al volver)</span>' : ''}</p><button type="button" class="btn" data-act="logout">Cerrar sesión</button>`;
+    return `<p style="margin:0 0 8px">✅ Conectado como <b>${esc(fb.user.email)}</b>${c === 'sync' ? ' <span class="muted">(sin conexión: se sube al volver)</span>' : ''}</p><button type="button" class="btn" data-act="logout">Cerrar sesión</button> <span class="muted">(borra los datos de este celular)</span>`;
   }
   function cloudDot() {
     const el = $('#cloudDot'); if (!el) return;
@@ -503,7 +526,7 @@
     const box = $('#cloudBox'); if (box) box.innerHTML = cloudBoxHtml();
   }
   async function initCloud() {
-    const cfg = window.PRESVIZ_FIREBASE; if (!cfg) return;
+    const cfg = window.PRESVIZ_FIREBASE; if (!cfg) { phase = 'offline'; render(); return; }
     const base = 'https://www.gstatic.com/firebasejs/10.14.1/';
     try {
       const [A, U, F] = await Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js')]);
@@ -513,27 +536,43 @@
       try { db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) }); } catch (e) { db = F.getFirestore(app); }
       fb = { auth, db, F, fn: U, user: null, online: false, signOut: () => U.signOut(auth) };
       U.onAuthStateChanged(auth, onUser);
-    } catch (e) { toast('No se pudo conectar a la nube'); }
+    } catch (e) { phase = 'offline'; render(); }
     cloudDot();
   }
   const estadoRef = () => fb.F.doc(fb.db, 'presviz', 'estado');
   const configRef = () => fb.F.doc(fb.db, 'presviz', 'config');
   const cloudReady = () => !!(fb && fb.user && fb.user.emailVerified);
-  function onUser(u) {
+  async function onUser(u) {
     fb.user = u; firstSnap = true;
     if (unsub) { unsub(); unsub = null; }
-    if (u && u.emailVerified) {
-      unsub = fb.F.onSnapshot(estadoRef(), { includeMetadataChanges: true }, (snap) => {
-        fb.online = !snap.metadata.fromCache;
-        applyRemote(snap.data() || {});
-        cloudDot();
-      }, () => { toast('Sin permiso en la nube: tu correo no está autorizado'); });
-      fb.F.getDoc(configRef()).then((c) => {
-        const pw = c.exists() && c.data().pw;
-        if (pw && !st.pw) { st.pw = pw; save(); syncPlan(false); } else if (st.pw && !pw) cloudSavePw();
-      }).catch(() => {});
-    }
-    cloudDot(); render();
+    if (!u) { phase = 'out'; cloudDot(); render(); return; }
+    if (!ALLOWED.includes((u.email || '').toLowerCase())) { authMsg = 'Este correo no tiene acceso a Presviz.'; await wipeAndSignOut('denied'); return; }
+    if (!u.emailVerified) { phase = 'verify'; cloudDot(); render(); return; }
+    phase = 'in'; authMsg = '';
+    if (P()) initMonth();
+    render();
+    unsub = fb.F.onSnapshot(estadoRef(), { includeMetadataChanges: true }, (snap) => {
+      fb.online = !snap.metadata.fromCache;
+      applyRemote(snap.data() || {});
+      cloudDot();
+    }, async () => { authMsg = 'Tu correo no está autorizado en la base de datos.'; await wipeAndSignOut('denied'); });
+    try {
+      const c = await fb.F.getDoc(configRef());
+      const pw = c.exists() && c.data().pw;
+      if (pw && pw !== st.pw) { st.pw = pw; save(); }
+      else if (st.pw && !pw) cloudSavePw();
+    } catch (e) { /* sin conexión: usa lo guardado */ }
+    cloudDot(); syncPlan();
+  }
+  async function wipeAndSignOut(nextPhase) {
+    if (unsub) { unsub(); unsub = null; }
+    const theme = st.theme; st = blank(); st.theme = theme; save();
+    try { await fb.signOut(); } catch (e) {}
+    try { await fb.F.terminate(fb.db); await fb.F.clearIndexedDbPersistence(fb.db); } catch (e) {}
+    phase = nextPhase || 'out'; needKey = false;
+    if (dlg.open) dlg.close();
+    render();
+    if (nextPhase !== 'denied') location.reload();
   }
   function applyRemote(d) {
     let changed = false; const push = {};
@@ -551,29 +590,37 @@
   function cloudPush(bucket, key, val) { if (cloudReady()) fb.F.setDoc(estadoRef(), { [bucket]: { [key]: val } }, { merge: true }).catch(() => toast('No se pudo sincronizar')); }
   function cloudPushTop(field, val) { if (cloudReady()) fb.F.setDoc(estadoRef(), { [field]: val }, { merge: true }).catch(() => {}); }
   function cloudSavePw() { if (cloudReady() && st.pw) fb.F.setDoc(configRef(), { pw: st.pw }, { merge: true }).catch(() => {}); }
-  async function cloudLogin() {
+  const AUTH_ERR = { 'auth/invalid-credential': 'Correo o contraseña incorrectos', 'auth/wrong-password': 'Correo o contraseña incorrectos', 'auth/user-not-found': 'Correo o contraseña incorrectos',
+    'auth/email-already-in-use': 'Ese correo ya tiene cuenta: usa “Entrar”', 'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres',
+    'auth/invalid-email': 'Correo no válido', 'auth/too-many-requests': 'Demasiados intentos, espera un momento', 'auth/network-request-failed': 'Sin conexión' };
+  async function doAuth(mode) {
     if (!fb) { toast('Conectando… intenta en unos segundos'); return; }
-    const r = await ask({ title: 'Iniciar sesión', text: 'Usa tu correo. La primera vez elige “Crear cuenta”.', fields: [
-      { label: 'Correo', type: 'email' }, { label: 'Contraseña (mínimo 6 caracteres)', type: 'password' },
-      { label: '¿Qué quieres hacer?', options: [['in', 'Entrar'], ['new', 'Crear cuenta'], ['reset', 'Olvidé mi contraseña']], value: 'in' }], ok: 'Continuar' });
-    if (!r) return;
-    const email = r[0].trim(), pass = r[1], mode = r[2];
+    const email = ($('#lgEmail') || {}).value?.trim().toLowerCase() || '', pass = ($('#lgPass') || {}).value || '';
+    if (!email) { toast('Escribe tu correo'); return; }
+    if (mode !== 'reset' && !ALLOWED.includes(email)) { authMsg = 'Este correo no tiene acceso a Presviz.'; phase = 'denied'; render(); return; }
     try {
-      if (mode === 'reset') { await fb.fn.sendPasswordResetEmail(fb.auth, email); toast('Te enviamos un correo para cambiarla'); return; }
-      if (mode === 'new') { const c = await fb.fn.createUserWithEmailAndPassword(fb.auth, email, pass); await fb.fn.sendEmailVerification(c.user); toast('Cuenta creada. Revisa tu correo para verificarla'); settings(); }
-      else { await fb.fn.signInWithEmailAndPassword(fb.auth, email, pass); toast('Sesión iniciada ✓'); }
-    } catch (e) {
-      const m = { 'auth/invalid-credential': 'Correo o contraseña incorrectos', 'auth/email-already-in-use': 'Ese correo ya tiene cuenta: elige “Entrar”', 'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres', 'auth/invalid-email': 'Correo no válido', 'auth/too-many-requests': 'Demasiados intentos, espera un momento' }[e.code];
-      toast(m || 'No se pudo: ' + (e.code || e.message));
-    }
+      if (mode === 'reset') { await fb.fn.sendPasswordResetEmail(fb.auth, email); toast('Si el correo existe, te llegará un enlace'); return; }
+      if (pass.length < 6) { toast('La contraseña debe tener al menos 6 caracteres'); return; }
+      if (mode === 'signup') { const c = await fb.fn.createUserWithEmailAndPassword(fb.auth, email, pass); await fb.fn.sendEmailVerification(c.user); toast('Cuenta creada. Revisa tu correo'); }
+      else await fb.fn.signInWithEmailAndPassword(fb.auth, email, pass);
+    } catch (e) { authMsg = AUTH_ERR[e.code] || 'No se pudo: ' + (e.code || e.message); render(); }
   }
   addEventListener('online', cloudDot);
   addEventListener('offline', () => { if (fb) fb.online = false; cloudDot(); });
 
-  if (P()) initMonth();
-  render();
-  syncPlan(false);
+  render(); // pantalla de carga: nada se muestra hasta validar la sesión
   initCloud();
+  setTimeout(() => { if (phase === 'boot') { phase = navigator.onLine ? 'out' : 'offline'; render(); } }, 12000);
 
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  // ---------- actualizaciones inmediatas ----------
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !reloading) { reloading = true; location.reload(); } });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+      const check = () => reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { check(); syncPlan(); } });
+      setInterval(check, 5 * 60 * 1000);
+    }).catch(() => {});
+  }
 })();
