@@ -1,5 +1,5 @@
 // Cachea solo la app (sin datos). Los datos viven en localStorage de cada celular.
-const CACHE = 'presviz-v4';
+const CACHE = 'presviz-v5';
 const ASSETS = ['./', 'index.html', 'app.css', 'app.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png', 'plan.enc.json', 'firebase-config.js'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => {

@@ -13,7 +13,7 @@
 
   // ---------- estado ----------
   let st = load();
-  function blank() { return { plan: null, paid: {}, bal: {}, real: {}, days: {}, amt: {}, wish: {}, cap: null, me: '', theme: 'auto', fx: null, prepago: null, pw: '' }; }
+  function blank() { return { plan: null, paid: {}, bal: {}, real: {}, days: {}, amt: {}, wish: {}, movs: {}, clasif: {}, cap: null, me: '', theme: 'auto', fx: null, prepago: null, pw: '' }; }
   function load() {
     try { const raw = localStorage.getItem(KEY); if (raw) return Object.assign(blank(), JSON.parse(raw)); } catch (e) { /* sin storage */ }
     return blank();
@@ -22,7 +22,7 @@
   const stamp = (v) => ({ v, t: Date.now(), by: st.me || '' });
   function setK(bucket, key, v) { st[bucket][key] = stamp(v); save(); cloudPush(bucket, key, st[bucket][key]); }
   const getV = (bucket, key) => (st[bucket][key] && st[bucket][key].v !== null ? st[bucket][key].v : undefined);
-  const BUCKETS = ['paid', 'bal', 'real', 'days', 'amt', 'wish'];
+  const BUCKETS = ['paid', 'bal', 'real', 'days', 'amt', 'wish', 'movs', 'clasif'];
 
   // ---------- helpers del plan ----------
   const P = () => st.plan;
@@ -112,7 +112,7 @@
     $('#monthNav').style.visibility = tab === 'metas' ? 'hidden' : 'visible';
     $('#monthLabel').textContent = monthName(P().months[mi]);
     $('#prevMonth').disabled = mi === 0; $('#nextMonth').disabled = mi === P().months.length - 1;
-    view.innerHTML = ({ inicio, pagos, bolsas, metas, presupuesto })[tab]();
+    view.innerHTML = ({ inicio, pagos, bolsas, metas, presupuesto, tarjeta })[tab]();
   }
 
   function onboarding() {
@@ -129,7 +129,7 @@
   function inicio() {
     const c = monthCalc(mi), k = P().months[mi];
     const personalNote = 'Para salidas, delivery y tienditas. Lo que no gastes es tu ahorro.';
-    let h = `<h2>Libre para cada uno · ${esc(monthName(k))}</h2>
+    let h = pendientesCard(movList(), 3) + `<h2>Libre para cada uno · ${esc(monthName(k))}</h2>
     <div class="grid2">
       <div class="person p-sofia"><div class="who">Sofía</div><div class="amt">${S0(c.sof)}</div><div class="sub">${personalNote}</div></div>
       <div class="person p-renan"><div class="who">Renán</div><div class="amt">${S0(c.ren)}</div><div class="sub">${personalNote}</div></div>
@@ -279,6 +279,64 @@
     </div></details>`;
     return h;
   }
+
+  // ---------- consumos de tarjeta (vienen del script de Gmail) ----------
+  const CARD = { '8665': 'Sofía', '8673': 'Renán' };
+  const CLAS = { personal: 'Personal', comun: 'Común', reembolso: 'Reembolso' };
+  function movList() {
+    return Object.entries(st.movs).filter(([, x]) => x && x.v && x.v.fecha).map(([id, x]) => {
+      const m = x.v, [d, mo, y] = m.fecha.split('/');
+      return { id, ...m, key: y + '-' + mo, date: new Date(+y, +mo - 1, +d), quien: CARD[m.tarjeta] || '*' + m.tarjeta,
+        pen: m.moneda === 'USD' ? m.monto * fx() : m.monto, clas: getV('clasif', id) };
+    }).sort((a, b) => b.date - a.date || String(b.hora).localeCompare(String(a.hora)));
+  }
+  function sugerir(m, all) {
+    const c = (m.comercio || '').toUpperCase();
+    if (/AUNA ONCO/.test(c)) return 'reembolso';
+    if (m.quien === 'Renán' && /UBER|DLC RIDES|CABIFY|DIDI/.test(c)) return 'reembolso';
+    const prev = all.find((x) => x.clas && x.comercio === m.comercio && x.id !== m.id);
+    return prev ? prev.clas : null;
+  }
+  function movRow(m, all) {
+    const amt = `<span class="num">${m.moneda === 'USD' ? 'US$ ' + fmt.format(m.monto) : S(m.monto)}</span>`;
+    const meta = `${m.date.getDate()} ${MES3[m.date.getMonth()]}${m.hora ? ' · ' + esc(m.hora.slice(0, 5)) : ''} · ${esc(m.quien)}`;
+    let actions;
+    if (m.clas) {
+      actions = `<span class="pill ${m.clas === 'comun' ? '' : m.clas === 'personal' ? 'warn' : 'gray'}">${CLAS[m.clas]}${m.clas === 'personal' ? ' ' + esc(m.quien) : ''}</span> <button class="edit" data-act="clas" data-id="${esc(m.id)}" data-v="">Cambiar</button>`;
+    } else {
+      const sug = sugerir(m, all);
+      actions = `<div class="btns sm" style="margin-top:6px">${['personal', 'comun', 'reembolso'].map((v) =>
+        `<button class="btn ${sug === v ? 'primary' : ''}" data-act="clas" data-id="${esc(m.id)}" data-v="${v}">${v === 'personal' ? 'Personal ' + esc(m.quien) : CLAS[v]}</button>`).join('')}</div>`;
+    }
+    return `<div class="row" style="align-items:flex-start"><div class="grow"><div class="t">${esc(m.comercio || 'Consumo')}</div><div class="s">${meta}</div>${m.clas ? '' : actions}</div>
+      <div style="text-align:right">${amt}${m.clas ? '<div style="margin-top:4px">' + actions + '</div>' : ''}</div></div>`;
+  }
+  function pendientesCard(all, max) {
+    const pend = all.filter((m) => !m.clas);
+    if (!pend.length) return '';
+    return `<h2>💳 ${pend.length} gasto${pend.length > 1 ? 's' : ''} por clasificar</h2><div class="card">${pend.slice(0, max).map((m) => movRow(m, all)).join('')}
+      ${pend.length > max ? '<button class="btn link" data-go="tarjeta">Ver todos →</button>' : ''}</div>`;
+  }
+  function tarjeta() {
+    const k = P().months[mi], all = movList(), mes = all.filter((m) => m.key === k);
+    const tot = (f) => sum(mes.filter(f).map((m) => m.pen));
+    const comun = tot((m) => m.clas === 'comun'), ree = tot((m) => m.clas === 'reembolso');
+    const ps = tot((m) => m.clas === 'personal' && m.quien === 'Sofía'), pr = tot((m) => m.clas === 'personal' && m.quien === 'Renán');
+    let h = pendientesCard(all, 20);
+    if (!all.length) h += `<div class="card empty"><h1>💳</h1><p class="muted">Aquí aparecerán los consumos con la tarjeta BBVA apenas el script de Gmail los envíe (revisa cada 10 minutos).</p></div>`;
+    const quien = (n, g, asig, key) => `<div class="kv"><span>Personal ${n} <span class="muted small">(de sus ${S0(asig)} del mes le quedan ${S0(asig - g)})</span></span><span class="num">${S(g)}</span></div>
+      ${g ? `<div class="row"><input type="checkbox" class="check" data-act="paid" data-key="${esc(k + '|' + key)}" ${getV('paid', k + '|' + key) ? 'checked' : ''} aria-label="Devuelto"><div class="grow small">${n} devuelve ${S(g)} a la cuenta común</div></div>` : ''}`;
+    h += `<h2>Tarjeta · ${esc(monthName(k))}</h2><div class="card">
+      <div class="kv"><span>Gastos comunes</span><span class="num">${S(comun)}</span></div>
+      ${quien('Sofía', ps, P().metas.sof[mi], 'dev_sofia')}
+      ${quien('Renán', pr, P().metas.ren[mi], 'dev_renan')}
+      <div class="kv"><span>Reembolsos por cobrar <span class="muted small">(Oncosalud, taxis de la empresa, compras de la familia)</span></span><span class="num">${S(ree)}</span></div>
+      <p class="note">Los gastos personales se pagan con la tarjeta común; cada uno los devuelve desde su dinero personal.</p></div>`;
+    const hechos = mes.filter((m) => m.clas);
+    if (hechos.length) h += `<h2>Clasificados</h2><div class="card">${hechos.map((m) => movRow(m, all)).join('')}</div>`;
+    return h;
+  }
+
   const cap1 = (s) => s.charAt(0) + s.slice(1).toLowerCase();
   function realTotal(i) { const k = P().months[i]; return sum(Object.keys(st.real).filter((x) => x.startsWith(k + '|')).map((x) => st.real[x].v || 0)); }
 
@@ -341,7 +399,7 @@
     if (obj && obj.kind === 'respaldo-nuestra-plata' && obj.state) {
       const o = obj.state;
       if (o.plan && (!st.plan || (o.plan.version || '') >= (st.plan.version || ''))) st.plan = o.plan;
-      for (const b of ['paid', 'bal', 'real', 'days', 'amt', 'wish']) st[b] = mergeBucket(st[b], o[b]);
+      for (const b of BUCKETS) st[b] = mergeBucket(st[b], o[b]);
       if (o.cap && (!st.cap || st.cap.t < o.cap.t)) st.cap = o.cap;
       if (!st.fx && o.fx) st.fx = o.fx;
       save(); if (st.plan) initMonth(); toast('Respaldo de ' + (obj.by || 'tu pareja') + ' combinado ✓'); render(); return;
@@ -370,6 +428,7 @@
     if (act === 'resend') { if (fb && fb.user) { await fb.fn.sendEmailVerification(fb.user); toast('Correo de verificación enviado'); } return; }
     if (act === 'wipe') { if (confirm('¿Borrar todos los datos de este celular? Exporta un respaldo antes.')) { st = blank(); save(); dlg.close(); render(); } return; }
     if (act === 'paid' || act === 'wish') return; // lo maneja 'change'
+    if (act === 'clas') { setK('clasif', a.dataset.id, a.dataset.v || null); render(); return; }
     if (act === 'amt') { const r = await ask({ title: 'Monto del pago', text: 'Ej.: el total del estado de cuenta.', fields: [{ label: 'Monto (S/)', value: getV('amt', a.dataset.key) ?? '' }] }); if (r && num(r[0]) !== null) { setK('amt', a.dataset.key, num(r[0])); render(); } return; }
     if (act === 'day') { const r = await ask({ title: 'Día de pago', text: 'Se usará todos los meses.', fields: [{ label: 'Día del mes (1–31)', value: getV('days', a.dataset.id) ?? '', min: 1, max: 31 }] }); const d = r && Math.round(num(r[0])); if (d >= 1 && d <= 31) { setK('days', a.dataset.id, d); render(); } return; }
     if (act === 'bal') { const b = P().bolsas.find((x) => x.id === a.dataset.id); const r = await ask({ title: 'Saldo real · ' + b.name, text: 'Lo que ves hoy en la cuenta.', fields: [{ label: 'Saldo (S/)', value: getV('bal', b.id) ?? '' }] }); if (r && num(r[0]) !== null) { setK('bal', b.id, num(r[0])); render(); } return; }
