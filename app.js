@@ -1,4 +1,4 @@
-/* Presviz · PWA local-first. Los datos viven solo en este dispositivo (localStorage). */
+/* Presviz · PWA local-first con sincronización en línea (Firebase) cuando hay sesión iniciada. */
 (function () {
   'use strict';
   const KEY = 'nuestra-plata.v1';
@@ -20,8 +20,9 @@
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) { toast('No se pudo guardar en este dispositivo'); } }
   const stamp = (v) => ({ v, t: Date.now(), by: st.me || '' });
-  function setK(bucket, key, v) { st[bucket][key] = stamp(v); save(); }
-  const getV = (bucket, key) => (st[bucket][key] ? st[bucket][key].v : undefined);
+  function setK(bucket, key, v) { st[bucket][key] = stamp(v); save(); cloudPush(bucket, key, st[bucket][key]); }
+  const getV = (bucket, key) => (st[bucket][key] && st[bucket][key].v !== null ? st[bucket][key].v : undefined);
+  const BUCKETS = ['paid', 'bal', 'real', 'days', 'amt', 'wish'];
 
   // ---------- helpers del plan ----------
   const P = () => st.plan;
@@ -37,7 +38,7 @@
   const monthName = (k) => { const [y, m] = k.split('-').map(Number); return MES[m - 1] + ' ' + y; };
   const shortDate = (d) => d.getDate() + ' ' + MES3[d.getMonth()];
   const sum = (a) => a.reduce((x, y) => x + (+y || 0), 0);
-  const fx = () => st.fx || P().fx;
+  const fx = () => st.fx || (P() ? P().fx : 3.45);
 
   function monthCalc(i) {
     const p = P(), m = p.metas;
@@ -279,7 +280,7 @@
     return h;
   }
   const cap1 = (s) => s.charAt(0) + s.slice(1).toLowerCase();
-  function realTotal(i) { const k = P().months[i]; return sum(Object.keys(st.real).filter((x) => x.startsWith(k + '|')).map((x) => st.real[x].v)); }
+  function realTotal(i) { const k = P().months[i]; return sum(Object.keys(st.real).filter((x) => x.startsWith(k + '|')).map((x) => st.real[x].v || 0)); }
 
   // ---------- diálogos ----------
   const dlg = $('#dlg'), form = $('#dlgForm');
@@ -303,8 +304,10 @@
       <label for="sTheme">Tema</label>
       <select id="sTheme"><option value="auto" ${st.theme === 'auto' ? 'selected' : ''}>Automático</option><option value="light" ${st.theme === 'light' ? 'selected' : ''}>Claro</option><option value="dark" ${st.theme === 'dark' ? 'selected' : ''}>Oscuro</option></select>
       <label for="sFx">Tipo de cambio US$</label><input id="sFx" type="number" step="0.001" inputmode="decimal" value="${fx() || ''}">
-      <label>Compartir con tu pareja</label>
-      <p class="small muted" style="margin:0 0 8px">Exporta un respaldo y mándalo por WhatsApp. En el otro celular: Ajustes → Importar. Se combinan los cambios de los dos (gana el más reciente).</p>
+      <label>Sincronización en línea</label>
+      <div id="cloudBox" class="small">${cloudBoxHtml()}</div>
+      <label>Respaldo manual</label>
+      <p class="small muted" style="margin:0 0 8px">Por si acaso: guarda una copia de tus datos en un archivo, o importa uno.</p>
       <div class="btns" style="justify-content:flex-start"><button type="button" class="btn primary" data-act="export">Exportar respaldo</button><button type="button" class="btn" data-act="import">Importar archivo</button></div>
       <label>Zona de peligro</label>
       <div class="btns" style="justify-content:flex-start"><button type="button" class="btn" data-act="wipe" style="color:var(--danger)">Borrar datos de este celular</button></div>
@@ -361,13 +364,17 @@
     if (act === 'import') { if (dlg.open) dlg.close(); $('#fileIn').click(); return; }
     if (act === 'export') { exportData(); return; }
     if (act === 'unlock') { syncPlan(true); return; }
+    if (act === 'login') { if (dlg.open) dlg.close(); cloudLogin(); return; }
+    if (act === 'logout') { if (fb) { await fb.signOut(); toast('Sesión cerrada'); } if (dlg.open) dlg.close(); return; }
+    if (act === 'verified') { if (fb && fb.user) { await fb.user.reload(); await fb.user.getIdToken(true); onUser(fb.auth.currentUser); } if (dlg.open) dlg.close(); return; }
+    if (act === 'resend') { if (fb && fb.user) { await fb.fn.sendEmailVerification(fb.user); toast('Correo de verificación enviado'); } return; }
     if (act === 'wipe') { if (confirm('¿Borrar todos los datos de este celular? Exporta un respaldo antes.')) { st = blank(); save(); dlg.close(); render(); } return; }
     if (act === 'paid' || act === 'wish') return; // lo maneja 'change'
     if (act === 'amt') { const r = await ask({ title: 'Monto del pago', text: 'Ej.: el total del estado de cuenta.', fields: [{ label: 'Monto (S/)', value: getV('amt', a.dataset.key) ?? '' }] }); if (r && num(r[0]) !== null) { setK('amt', a.dataset.key, num(r[0])); render(); } return; }
     if (act === 'day') { const r = await ask({ title: 'Día de pago', text: 'Se usará todos los meses.', fields: [{ label: 'Día del mes (1–31)', value: getV('days', a.dataset.id) ?? '', min: 1, max: 31 }] }); const d = r && Math.round(num(r[0])); if (d >= 1 && d <= 31) { setK('days', a.dataset.id, d); render(); } return; }
     if (act === 'bal') { const b = P().bolsas.find((x) => x.id === a.dataset.id); const r = await ask({ title: 'Saldo real · ' + b.name, text: 'Lo que ves hoy en la cuenta.', fields: [{ label: 'Saldo (S/)', value: getV('bal', b.id) ?? '' }] }); if (r && num(r[0]) !== null) { setK('bal', b.id, num(r[0])); render(); } return; }
-    if (act === 'real') { const r = await ask({ title: 'Gasto real', text: esc(a.dataset.name), fields: [{ label: 'Monto real del mes (S/)', value: getV('real', a.dataset.key) ?? '' }] }); if (r) { const n = num(r[0]); if (n === null) delete st.real[a.dataset.key]; else st.real[a.dataset.key] = stamp(n); save(); render(); } return; }
-    if (act === 'cap') { const r = await ask({ title: 'Capital pendiente', text: 'Cópialo de la app BBVA (Préstamo → Capital pendiente).', fields: [{ label: 'Capital (S/)', value: st.cap ? st.cap.v : P().hip.capital }] }); if (r && num(r[0])) { st.cap = stamp(num(r[0])); save(); render(); } return; }
+    if (act === 'real') { const r = await ask({ title: 'Gasto real', text: esc(a.dataset.name), fields: [{ label: 'Monto real del mes (S/)', value: getV('real', a.dataset.key) ?? '' }] }); if (r) { setK('real', a.dataset.key, num(r[0])); render(); } return; }
+    if (act === 'cap') { const r = await ask({ title: 'Capital pendiente', text: 'Cópialo de la app BBVA (Préstamo → Capital pendiente).', fields: [{ label: 'Capital (S/)', value: st.cap ? st.cap.v : P().hip.capital }] }); if (r && num(r[0])) { st.cap = stamp(num(r[0])); save(); cloudPushTop('cap', st.cap); render(); } return; }
     if (act === 'prepago') { const r = await ask({ title: 'Simular prepago anual', text: 'Monto que prepagan cada setiembre. El plan es S/ 8,500 (termina ene-2040).', fields: [{ label: 'Prepago anual (S/)', value: st.prepago ?? P().hip.prepagoAnual }] }); if (r && num(r[0]) !== null) { st.prepago = num(r[0]); save(); render(); } return; }
   });
   document.addEventListener('change', (e) => {
@@ -409,7 +416,7 @@
         try {
           const plan = await decryptPlan(enc, pw);
           const nuevo = !!st.plan;
-          st.plan = plan; st.pw = pw; save(); initMonth(); render();
+          st.plan = plan; st.pw = pw; save(); initMonth(); render(); cloudSavePw();
           toast(nuevo ? 'Plan actualizado ✓' : 'Plan cargado ✓');
           return;
         } catch (e) { pw = ''; st.pw = ''; toast('Clave incorrecta'); }
@@ -417,8 +424,97 @@
     } finally { syncing = false; }
   }
 
+  // ---------- nube (Firebase) ----------
+  let fb = null, unsub = null, firstSnap = true;
+  const cloudState = () => (!window.PRESVIZ_FIREBASE ? 'off' : !fb ? 'loading' : !fb.user ? 'out' : !fb.user.emailVerified ? 'verify' : fb.online ? 'on' : 'sync');
+  function cloudBoxHtml() {
+    const c = cloudState();
+    if (c === 'off') return '<span class="muted">Aún no está configurada.</span>';
+    if (c === 'loading') return '<span class="muted">Conectando…</span>';
+    if (c === 'out') return '<p class="muted" style="margin:0 0 8px">Inicia sesión para que los dos vean lo mismo al instante.</p><button type="button" class="btn primary" data-act="login">Iniciar sesión</button>';
+    if (c === 'verify') return `<p class="muted" style="margin:0 0 8px">Te enviamos un correo a <b>${esc(fb.user.email)}</b>. Abre el enlace y luego toca “Ya verifiqué”.</p><div class="btns" style="justify-content:flex-start"><button type="button" class="btn primary" data-act="verified">Ya verifiqué</button><button type="button" class="btn" data-act="resend">Reenviar</button><button type="button" class="btn" data-act="logout">Salir</button></div>`;
+    return `<p style="margin:0 0 8px">✅ Conectado como <b>${esc(fb.user.email)}</b>${c === 'sync' ? ' <span class="muted">(sin conexión: se sube al volver)</span>' : ''}</p><button type="button" class="btn" data-act="logout">Cerrar sesión</button>`;
+  }
+  function cloudDot() {
+    const el = $('#cloudDot'); if (!el) return;
+    const c = cloudState();
+    el.hidden = c === 'off';
+    el.style.background = c === 'on' ? 'var(--ok)' : c === 'sync' || c === 'loading' ? 'var(--warn)' : 'var(--muted)';
+    el.title = { on: 'Sincronizado', sync: 'Sin conexión', loading: 'Conectando', out: 'Sin sesión', verify: 'Verifica tu correo' }[c] || '';
+    const box = $('#cloudBox'); if (box) box.innerHTML = cloudBoxHtml();
+  }
+  async function initCloud() {
+    const cfg = window.PRESVIZ_FIREBASE; if (!cfg) return;
+    const base = 'https://www.gstatic.com/firebasejs/10.14.1/';
+    try {
+      const [A, U, F] = await Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js')]);
+      const app = A.initializeApp(cfg);
+      const auth = U.getAuth(app);
+      let db;
+      try { db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) }); } catch (e) { db = F.getFirestore(app); }
+      fb = { auth, db, F, fn: U, user: null, online: false, signOut: () => U.signOut(auth) };
+      U.onAuthStateChanged(auth, onUser);
+    } catch (e) { toast('No se pudo conectar a la nube'); }
+    cloudDot();
+  }
+  const estadoRef = () => fb.F.doc(fb.db, 'presviz', 'estado');
+  const configRef = () => fb.F.doc(fb.db, 'presviz', 'config');
+  const cloudReady = () => !!(fb && fb.user && fb.user.emailVerified);
+  function onUser(u) {
+    fb.user = u; firstSnap = true;
+    if (unsub) { unsub(); unsub = null; }
+    if (u && u.emailVerified) {
+      unsub = fb.F.onSnapshot(estadoRef(), { includeMetadataChanges: true }, (snap) => {
+        fb.online = !snap.metadata.fromCache;
+        applyRemote(snap.data() || {});
+        cloudDot();
+      }, () => { toast('Sin permiso en la nube: tu correo no está autorizado'); });
+      fb.F.getDoc(configRef()).then((c) => {
+        const pw = c.exists() && c.data().pw;
+        if (pw && !st.pw) { st.pw = pw; save(); syncPlan(false); } else if (st.pw && !pw) cloudSavePw();
+      }).catch(() => {});
+    }
+    cloudDot(); render();
+  }
+  function applyRemote(d) {
+    let changed = false; const push = {};
+    for (const b of BUCKETS) {
+      const r = d[b] || {};
+      for (const k in r) { const x = r[k]; if (x && typeof x.t === 'number' && (!st[b][k] || st[b][k].t < x.t)) { st[b][k] = x; changed = true; } }
+      if (firstSnap) for (const k in st[b]) { if (!r[k] || r[k].t < st[b][k].t) { push[b] = push[b] || {}; push[b][k] = st[b][k]; } }
+    }
+    if (d.cap && (!st.cap || st.cap.t < d.cap.t)) { st.cap = d.cap; changed = true; }
+    else if (firstSnap && st.cap && (!d.cap || d.cap.t < st.cap.t)) push.cap = st.cap;
+    if (firstSnap && Object.keys(push).length) fb.F.setDoc(estadoRef(), push, { merge: true }).catch(() => {});
+    firstSnap = false;
+    if (changed) { save(); if (P()) render(); }
+  }
+  function cloudPush(bucket, key, val) { if (cloudReady()) fb.F.setDoc(estadoRef(), { [bucket]: { [key]: val } }, { merge: true }).catch(() => toast('No se pudo sincronizar')); }
+  function cloudPushTop(field, val) { if (cloudReady()) fb.F.setDoc(estadoRef(), { [field]: val }, { merge: true }).catch(() => {}); }
+  function cloudSavePw() { if (cloudReady() && st.pw) fb.F.setDoc(configRef(), { pw: st.pw }, { merge: true }).catch(() => {}); }
+  async function cloudLogin() {
+    if (!fb) { toast('Conectando… intenta en unos segundos'); return; }
+    const r = await ask({ title: 'Iniciar sesión', text: 'Usa tu correo. La primera vez elige “Crear cuenta”.', fields: [
+      { label: 'Correo', type: 'email' }, { label: 'Contraseña (mínimo 6 caracteres)', type: 'password' },
+      { label: '¿Qué quieres hacer?', options: [['in', 'Entrar'], ['new', 'Crear cuenta'], ['reset', 'Olvidé mi contraseña']], value: 'in' }], ok: 'Continuar' });
+    if (!r) return;
+    const email = r[0].trim(), pass = r[1], mode = r[2];
+    try {
+      if (mode === 'reset') { await fb.fn.sendPasswordResetEmail(fb.auth, email); toast('Te enviamos un correo para cambiarla'); return; }
+      if (mode === 'new') { const c = await fb.fn.createUserWithEmailAndPassword(fb.auth, email, pass); await fb.fn.sendEmailVerification(c.user); toast('Cuenta creada. Revisa tu correo para verificarla'); settings(); }
+      else { await fb.fn.signInWithEmailAndPassword(fb.auth, email, pass); toast('Sesión iniciada ✓'); }
+    } catch (e) {
+      const m = { 'auth/invalid-credential': 'Correo o contraseña incorrectos', 'auth/email-already-in-use': 'Ese correo ya tiene cuenta: elige “Entrar”', 'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres', 'auth/invalid-email': 'Correo no válido', 'auth/too-many-requests': 'Demasiados intentos, espera un momento' }[e.code];
+      toast(m || 'No se pudo: ' + (e.code || e.message));
+    }
+  }
+  addEventListener('online', cloudDot);
+  addEventListener('offline', () => { if (fb) fb.online = false; cloudDot(); });
+
   if (P()) initMonth();
   render();
   syncPlan(false);
+  initCloud();
+
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

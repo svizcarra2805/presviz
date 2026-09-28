@@ -27,6 +27,7 @@
     <span id="monthLabel">—</span>
     <button class="icon-btn" id="nextMonth" aria-label="Mes siguiente">›</button>
   </div>
+  <span id="cloudDot" hidden style="width:9px;height:9px;border-radius:50%;display:inline-block;flex:none"></span>
   <button class="icon-btn" id="openSettings" aria-label="Ajustes">⚙</button>
 </header>
 
@@ -43,6 +44,7 @@
 <dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
 <input type="file" id="fileIn" accept="application/json,.json" hidden>
 <div id="toast" role="status" aria-live="polite"></div>
+<script src="firebase-config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
