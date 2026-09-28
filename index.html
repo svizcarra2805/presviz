@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Presviz</title>
+<meta name="description" content="Presupuesto familiar">
+<meta name="theme-color" content="#1f5f45" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1714" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Presviz">
+<meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <img src="icons/icon-192.png" alt="" width="28" height="28">
+    <span>Presviz</span>
+  </div>
+  <div class="month" id="monthNav">
+    <button class="icon-btn" id="prevMonth" aria-label="Mes anterior">‹</button>
+    <span id="monthLabel">—</span>
+    <button class="icon-btn" id="nextMonth" aria-label="Mes siguiente">›</button>
+  </div>
+  <button class="icon-btn" id="openSettings" aria-label="Ajustes">⚙</button>
+</header>
+
+<main id="view" tabindex="-1"></main>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="inicio" class="on"><span class="ti">⌂</span>Inicio</button>
+  <button data-tab="pagos"><span class="ti">◷</span>Pagos</button>
+  <button data-tab="bolsas"><span class="ti">◫</span>Bolsas</button>
+  <button data-tab="metas"><span class="ti">◎</span>Metas</button>
+  <button data-tab="presupuesto"><span class="ti">≡</span>Presupuesto</button>
+</nav>
+
+<dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
+<input type="file" id="fileIn" accept="application/json,.json" hidden>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>
